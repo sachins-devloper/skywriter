@@ -13,6 +13,7 @@ text.
 ## Contents
 
 - [How it works](#how-it-works)
+- [Face Sentiment](#face-sentiment)
 - [Requirements](#requirements)
 - [Install](#install)
 - [Running it](#running-it)
@@ -78,14 +79,19 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-### Hand landmark model
+### Models
 
-The MediaPipe Tasks API does not bundle a model — download it once:
+The MediaPipe Tasks API does not bundle models — download both once:
 
 ```powershell
 curl -L -o models/hand_landmarker.task --create-dirs `
   https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task
+
+curl -L -o models/face_landmarker.task --create-dirs `
+  https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
 ```
+
+The hand model is ~7MB, the face model ~4MB.
 
 The app fails with the exact download command if the file is missing, so you
 cannot get this wrong silently.
@@ -109,13 +115,27 @@ falls back to saving crops. Force one with `--ocr tesseract`.
 ## Running it
 
 ```powershell
-.\.venv\Scripts\python.exe main.py
+.\.venv\Scripts\python.exe app.py
 ```
 
-In a dark or backlit room, start with:
+This opens **Air Studio**, an intro screen listing the two features. Click a
+card, or press `1` / `2`. Pressing `q` inside a mode returns to the menu rather
+than exiting, and the camera is opened once and shared — switching modes does
+not re-acquire the webcam.
+
+The menu also shows a dim live camera thumbnail, which doubles as a check: if
+that is black, the problem is the camera, before any mode is even entered.
+
+| Mode | What it does |
+|---|---|
+| **Air Writing** | Track the fingertip, rebuild strokes, read them as text |
+| **Face Sentiment** | Score facial blendshapes into expression labels |
+
+Skip the menu with `--mode airwrite` or `--mode sentiment`. In a dark or
+backlit room, start with:
 
 ```powershell
-.\.venv\Scripts\python.exe main.py --enhance --debug
+.\.venv\Scripts\python.exe app.py --enhance --debug
 ```
 
 A window opens with your camera feed mirrored. The HUD line at the top shows
@@ -157,6 +177,39 @@ left while it counts down.
 
 ---
 
+## Face Sentiment
+
+Reads MediaPipe's 52 ARKit-style blendshape weights — how open the jaw is, how
+raised each brow is, how much each mouth corner pulls — and scores them into
+**happy / sad / surprised / angry / neutral**. A bar chart shows every score,
+not just the winner, because a 0.31 `happy` next to a 0.29 `surprised` is worth
+seeing rather than trusting.
+
+| Key | Action |
+|---|---|
+| `b` | Toggle the score bars |
+| `m` | Toggle the face mesh |
+| `s` | Save a screenshot |
+| `q` | Back to the menu |
+
+### What this is and is not
+
+This is a **heuristic over muscle activations, not a trained emotion
+classifier.** It reads what a face is *doing* and infers sentiment from that,
+and those are not the same thing:
+
+- A polite smile and genuine delight produce near-identical blendshapes.
+- Expression-to-emotion mapping varies across people and cultures; the
+  scientific consensus is that it is not universal.
+- The weights in `EXPRESSIONS` ([airwrite/face.py](airwrite/face.py)) were set
+  by hand, not fitted to labelled data.
+
+Read the output as *"this face is smiling"*, not *"this person is happy"*. It
+is not suitable for anything consequential — assessment, screening, monitoring
+— and would need a properly trained and validated model for that.
+
+---
+
 ## Command-line flags
 
 | Flag | Default | Purpose |
@@ -178,13 +231,18 @@ left while it counts down.
 
 | File | Role |
 |---|---|
-| [main.py](main.py) | Capture loop, HUD, key handling, frame enhancement |
+| [app.py](app.py) | Launcher — opens the camera, shows the menu, dispatches modes |
+| [airwrite/menu.py](airwrite/menu.py) | Clickable intro screen |
+| [main.py](main.py) | Air-writing loop, HUD, key handling, frame enhancement |
+| [sentiment.py](sentiment.py) | Face sentiment loop and score bars |
+| [airwrite/face.py](airwrite/face.py) | Blendshape → expression scoring |
 | [airwrite/tracker.py](airwrite/tracker.py) | MediaPipe Tasks wrapper → smoothed pointer + gesture |
 | [airwrite/gestures.py](airwrite/gestures.py) | Finger-state → action, plus debouncing |
 | [airwrite/filters.py](airwrite/filters.py) | One Euro adaptive smoothing filter |
 | [airwrite/canvas.py](airwrite/canvas.py) | Stroke store, screen rendering, OCR export |
 | [airwrite/ocr.py](airwrite/ocr.py) | Pluggable recognizer backends |
-| [tests/test_pipeline.py](tests/test_pipeline.py) | Headless tests — no camera or MediaPipe needed |
+| [tests/test_pipeline.py](tests/test_pipeline.py) | Air-writing tests — no camera needed |
+| [tests/test_sentiment.py](tests/test_sentiment.py) | Expression-scoring tests |
 
 ### A note on the MediaPipe API
 
@@ -307,11 +365,12 @@ venv.
 .\.venv\Scripts\python.exe -m pytest tests/ -v
 ```
 
-20 tests covering gesture classification, debouncing, One Euro filtering and
-the canvas — including OCR-export polarity, cropping and scale. All run on
+31 tests covering gesture classification, debouncing, One Euro filtering and
+the canvas, plus expression scoring — including OCR-export polarity,
+cropping and scale. All run on
 synthetic input, **no camera or MediaPipe required**, so they work in CI.
 
-Not covered: live hand detection, which needs a real camera and a real hand.
+Not covered: live hand and face detection, which need a real camera.
 
 ---
 

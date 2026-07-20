@@ -32,7 +32,8 @@ HELP_LINES = [
 ]
 
 
-def parse_args():
+def build_parser():
+    """Shared by main.py and the app.py launcher, so flags stay identical."""
     p = argparse.ArgumentParser(description="Air-writing recognition")
     p.add_argument("--camera", type=int, default=0, help="camera index")
     p.add_argument("--width", type=int, default=1280)
@@ -51,8 +52,12 @@ def parse_args():
     p.add_argument("--enhance", action="store_true",
                    help="boost local contrast; helps in dark or backlit rooms")
     p.add_argument("--detection-confidence", type=float, default=0.5,
-                   help="lower it if your hand is not being picked up")
-    return p.parse_args()
+                   help="lower it if your hand or face is not being picked up")
+    return p
+
+
+def parse_args():
+    return build_parser().parse_args()
 
 
 def enhance(frame):
@@ -89,9 +94,13 @@ def draw_hud(frame, lines, origin=(12, 28), scale=0.6, color=(230, 230, 230)):
         y += int(30 * scale / 0.6)
 
 
-def main():
-    args = parse_args()
+def run(args, cap, window="Air Writing"):
+    """Run the air-writing loop on an already-open camera.
 
+    The launcher in app.py opens the camera once and hands it to whichever
+    mode the user picks; re-acquiring a webcam per mode switch is slow on
+    Windows and sometimes fails outright.
+    """
     backend = ocr_module.load(args.ocr)
     if backend.name == "none":
         print("No OCR backend installed - strokes will be saved but not read.")
@@ -99,18 +108,11 @@ def main():
     else:
         print(f"OCR backend: {backend.name}")
 
-    cap = cv2.VideoCapture(args.camera, cv2.CAP_DSHOW)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
-    if not cap.isOpened():
-        raise SystemExit(f"Could not open camera {args.camera}")
-
     ok, frame = cap.read()
     if not ok:
-        raise SystemExit("Camera opened but returned no frames")
+        raise SystemExit("Camera returned no frames")
     h, w = frame.shape[:2]
 
-    print(f"Camera reports {w}x{h}")
     tracker = HandTracker(smoothing=args.smoothing,
                           detection_confidence=args.detection_confidence)
     canvas = Canvas(w, h)
@@ -240,7 +242,7 @@ def main():
                                      interpolation=cv2.INTER_AREA)
             else:
                 display = frame
-            cv2.imshow("Air Writing", display)
+            cv2.imshow(window, display)
 
             key = cv2.waitKey(1) & 0xFF
             if key in (ord("q"), 27):
@@ -263,8 +265,20 @@ def main():
                     cv2.imwrite(str(path), image)
                     flash(f"saved {path.name}")
     finally:
-        cap.release()
+        # The camera belongs to the caller; only tear down what we created.
         tracker.close()
+        cv2.destroyWindow(window)
+
+
+def main():
+    from app import open_camera
+
+    args = parse_args()
+    cap = open_camera(args)
+    try:
+        run(args, cap)
+    finally:
+        cap.release()
         cv2.destroyAllWindows()
 
 
