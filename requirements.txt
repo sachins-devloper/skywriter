@@ -1,0 +1,11 @@
+mediapipe>=0.10.30
+opencv-python>=4.9
+numpy>=1.26
+
+# Optional OCR backends -- install at least one to get text out.
+#   pip install pytesseract           # also needs the Tesseract binary on PATH
+#   pip install transformers torch    # TrOCR, best accuracy, ~1.3GB download
+#   pip install paddleocr paddlepaddle
+
+# Tests
+pytest>=8.0
